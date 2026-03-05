@@ -1,9 +1,20 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { MaterialIcons } from "@expo/vector-icons";
+import {
+  createProduct,
+  createSection,
+  deleteProduct,
+  deleteSection,
+  getProducts,
+  getSections,
+  ProductDto,
+  SectionDto,
+  updateProduct,
+} from "../services/api";
 
 interface InventoryItem {
   id: number;
@@ -12,7 +23,8 @@ interface InventoryItem {
   quantity: number;
   unit: string;
   minStock: number;
-  status: "ok" | "low" | "out";
+  maxStock: number;
+  status: "ok" | "low" | "out" | "excess";
   lastUpdated: string;
 }
 
@@ -21,41 +33,48 @@ interface Section {
   name: string;
 }
 
-const mockSections: Section[] = [
-  { id: 1, name: "Vegetales" },
-  { id: 2, name: "Carnes" },
-  { id: 3, name: "Granos" },
-  { id: 4, name: "Aceites" },
-  { id: 5, name: "Lácteos" },
-];
+const getStatus = (quantity: number, minStock: number, maxStock: number): "ok" | "low" | "out" | "excess" => {
+  if (quantity === 0) return "out";
+  if (quantity < minStock) return "low";
+  if (maxStock > 0 && quantity > maxStock) return "excess";
+  return "ok";
+};
 
-const mockInventory: InventoryItem[] = [
-  { id: 1, name: "Tomate", category: "Vegetales", quantity: 45, unit: "kg", minStock: 20, status: "ok", lastUpdated: "Hace 2 horas" },
-  { id: 2, name: "Pollo", category: "Carnes", quantity: 12, unit: "kg", minStock: 15, status: "low", lastUpdated: "Hace 1 hora" },
-  { id: 3, name: "Arroz", category: "Granos", quantity: 80, unit: "kg", minStock: 30, status: "ok", lastUpdated: "Hace 3 horas" },
-  { id: 4, name: "Aceite de Oliva", category: "Aceites", quantity: 0, unit: "L", minStock: 5, status: "out", lastUpdated: "Hace 5 horas" },
-  { id: 5, name: "Cebolla", category: "Vegetales", quantity: 25, unit: "kg", minStock: 10, status: "ok", lastUpdated: "Hace 1 hora" },
-  { id: 6, name: "Queso", category: "Lácteos", quantity: 8, unit: "kg", minStock: 12, status: "low", lastUpdated: "Hace 4 horas" },
-];
+const mapProductToItem = (product: ProductDto): InventoryItem => ({
+  id: product.id,
+  name: product.nombre,
+  category: product.categoria,
+  quantity: product.cantidad,
+  unit: product.unidad,
+  minStock: product.stockMinimo,
+  maxStock: product.stockMaximo ?? product.stockExcedente ?? 0,
+  status: getStatus(product.cantidad, product.stockMinimo, product.stockMaximo ?? product.stockExcedente ?? 0),
+  lastUpdated: "Ahora",
+});
+
+const mapSectionToItem = (section: SectionDto): Section => ({
+  id: section.id,
+  name: section.nombre,
+});
 
 export default function Inventory() {
   const navigation = useNavigation();
-  const [items, setItems] = useState<InventoryItem[]>(mockInventory);
-  const [sections, setSections] = useState<Section[]>(mockSections);
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterSection, setFilterSection] = useState<string>("all");
   const [showAddItem, setShowAddItem] = useState(false);
   const [showSections, setShowSections] = useState(false);
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
-  const [editItem, setEditItem] = useState({ name: "", category: "", quantity: 0, unit: "kg", minStock: 0 });
+  const [editItem, setEditItem] = useState({ name: "", category: "", quantity: 0, unit: "kg", minStock: 0, maxStock: 0 });
   const [showAddCategoryMenu, setShowAddCategoryMenu] = useState(false);
   const [showAddUnitMenu, setShowAddUnitMenu] = useState(false);
   const [showEditCategoryMenu, setShowEditCategoryMenu] = useState(false);
   const [showEditUnitMenu, setShowEditUnitMenu] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [newSectionName, setNewSectionName] = useState("");
-  const [newItem, setNewItem] = useState({ name: "", category: "", quantity: 0, unit: "kg", minStock: 0 });
+  const [newItem, setNewItem] = useState({ name: "", category: "", quantity: 0, unit: "kg", minStock: 0, maxStock: 0 });
   const statusScrollRef = useRef<ScrollView | null>(null);
   const statusScrollX = useRef(0);
   const statusViewportWidth = useRef(0);
@@ -65,18 +84,27 @@ export default function Inventory() {
   const sectionViewportWidth = useRef(0);
   const sectionContentWidth = useRef(0);
 
+  useEffect(() => {
+    const loadInventoryData = async () => {
+      try {
+        const [apiSections, apiProducts] = await Promise.all([getSections(), getProducts()]);
+        setSections(apiSections.map(mapSectionToItem));
+        setItems(apiProducts.map(mapProductToItem));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "No se pudo cargar inventario.";
+        Alert.alert("Inventario", message);
+      }
+    };
+
+    loadInventoryData();
+  }, []);
+
   const filteredItems = items.filter((item) => {
     const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = filterStatus === "all" || item.status === filterStatus;
     const matchesSection = filterSection === "all" || item.category === filterSection;
     return matchesSearch && matchesStatus && matchesSection;
   });
-
-  const getStatus = (quantity: number, minStock: number): "ok" | "low" | "out" => {
-    if (quantity === 0) return "out";
-    if (quantity < minStock) return "low";
-    return "ok";
-  };
 
   const unitOptions = ["kg", "L", "unidades"];
 
@@ -86,29 +114,37 @@ export default function Inventory() {
     setShowAddUnitMenu(false);
   };
 
-  const handleAddItem = () => {
+  const handleAddItem = async () => {
     if (!newItem.name || !newItem.category) {
       Alert.alert("Error", "Por favor completa nombre y categoría");
       return;
     }
 
-    const item: InventoryItem = {
-      id: items.length + 1,
-      name: newItem.name,
-      category: newItem.category,
-      quantity: newItem.quantity,
-      unit: newItem.unit,
-      minStock: newItem.minStock,
-      status: getStatus(newItem.quantity, newItem.minStock),
-      lastUpdated: "Ahora",
-    };
+    if (newItem.minStock < 0 || newItem.maxStock < 0 || newItem.maxStock < newItem.minStock) {
+      Alert.alert("Error", "El stock máximo debe ser mayor o igual al stock mínimo.");
+      return;
+    }
 
-    setItems([...items, item]);
-    setNewItem({ name: "", category: "", quantity: 0, unit: "kg", minStock: 0 });
-    closeAddModal();
+    try {
+      const created = await createProduct({
+        nombre: newItem.name.trim(),
+        categoria: newItem.category,
+        cantidad: Number(newItem.quantity),
+        unidad: newItem.unit,
+        stockMinimo: Number(newItem.minStock),
+        stockMaximo: Number(newItem.maxStock),
+      });
+
+      setItems((prev) => [...prev, mapProductToItem(created)]);
+      setNewItem({ name: "", category: "", quantity: 0, unit: "kg", minStock: 0, maxStock: 0 });
+      closeAddModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo crear el producto.";
+      Alert.alert("Inventario", message);
+    }
   };
 
-  const handleAddSection = () => {
+  const handleAddSection = async () => {
     if (!newSectionName.trim()) {
       Alert.alert("Error", "Ingresa un nombre para la sección");
       return;
@@ -120,8 +156,14 @@ export default function Inventory() {
       return;
     }
 
-    setSections([...sections, { id: sections.length + 1, name: newSectionName.trim() }]);
-    setNewSectionName("");
+    try {
+      const created = await createSection(newSectionName.trim());
+      setSections((prev) => [...prev, mapSectionToItem(created)]);
+      setNewSectionName("");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo crear la sección.";
+      Alert.alert("Secciones", message);
+    }
   };
 
   const handleDeleteSection = (sectionId: number) => {
@@ -139,7 +181,15 @@ export default function Inventory() {
       {
         text: "Eliminar",
         style: "destructive",
-        onPress: () => setSections(sections.filter((s) => s.id !== sectionId)),
+        onPress: async () => {
+          try {
+            await deleteSection(sectionId);
+            setSections((prev) => prev.filter((s) => s.id !== sectionId));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "No se pudo eliminar la sección.";
+            Alert.alert("Secciones", message);
+          }
+        },
       },
     ]);
   };
@@ -147,7 +197,19 @@ export default function Inventory() {
   const handleDeleteItem = (id: number) => {
     Alert.alert("Eliminar", "¿Eliminar este producto?", [
       { text: "Cancelar", style: "cancel" },
-      { text: "Eliminar", style: "destructive", onPress: () => setItems(items.filter((item) => item.id !== id)) },
+      {
+        text: "Eliminar",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await deleteProduct(id);
+            setItems((prev) => prev.filter((item) => item.id !== id));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "No se pudo eliminar el producto.";
+            Alert.alert("Inventario", message);
+          }
+        },
+      },
     ]);
   };
 
@@ -158,7 +220,7 @@ export default function Inventory() {
           ? {
               ...item,
               quantity,
-              status: getStatus(quantity, item.minStock),
+              status: getStatus(quantity, item.minStock, item.maxStock),
               lastUpdated: "Ahora",
             }
           : item
@@ -172,10 +234,10 @@ export default function Inventory() {
     setEditingItemId(null);
     setShowEditCategoryMenu(false);
     setShowEditUnitMenu(false);
-    setEditItem({ name: "", category: "", quantity: 0, unit: "kg", minStock: 0 });
+    setEditItem({ name: "", category: "", quantity: 0, unit: "kg", minStock: 0, maxStock: 0 });
   };
 
-  const handleSaveEditItem = () => {
+  const handleSaveEditItem = async () => {
     if (!editingItem) return;
 
     if (!editItem.name.trim() || !editItem.category.trim()) {
@@ -183,29 +245,39 @@ export default function Inventory() {
       return;
     }
 
-    if (Number.isNaN(editItem.quantity) || Number.isNaN(editItem.minStock) || editItem.quantity < 0 || editItem.minStock < 0) {
+    if (
+      Number.isNaN(editItem.quantity) ||
+      Number.isNaN(editItem.minStock) ||
+      Number.isNaN(editItem.maxStock) ||
+      editItem.quantity < 0 ||
+      editItem.minStock < 0 ||
+      editItem.maxStock < 0
+    ) {
       Alert.alert("Error", "Ingresa valores válidos");
       return;
     }
 
-    setItems(
-      items.map((item) =>
-        item.id === editingItem.id
-          ? {
-              ...item,
-              name: editItem.name.trim(),
-              category: editItem.category.trim(),
-              quantity: editItem.quantity,
-              unit: editItem.unit.trim() || "kg",
-              minStock: editItem.minStock,
-              status: getStatus(editItem.quantity, editItem.minStock),
-              lastUpdated: "Ahora",
-            }
-          : item
-      )
-    );
+    if (editItem.maxStock < editItem.minStock) {
+      Alert.alert("Error", "El stock máximo debe ser mayor o igual al stock mínimo.");
+      return;
+    }
 
-    closeEditModal();
+    try {
+      const updated = await updateProduct(editingItem.id, {
+        nombre: editItem.name.trim(),
+        categoria: editItem.category.trim(),
+        cantidad: Number(editItem.quantity),
+        unidad: editItem.unit.trim() || "kg",
+        stockMinimo: Number(editItem.minStock),
+        stockMaximo: Number(editItem.maxStock),
+      });
+
+      setItems((prev) => prev.map((item) => (item.id === editingItem.id ? mapProductToItem(updated) : item)));
+      closeEditModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo actualizar el producto.";
+      Alert.alert("Inventario", message);
+    }
   };
 
   const scrollFilter = (
@@ -307,6 +379,7 @@ export default function Inventory() {
           { key: "all", label: "Todos" },
           { key: "ok", label: "Disponibles" },
           { key: "low", label: "Stock Bajo" },
+          { key: "excess", label: "Excedentes" },
           { key: "out", label: "Agotados" },
         ].map((filter) => (
           <TouchableOpacity
@@ -378,13 +451,23 @@ export default function Inventory() {
               <Text style={styles.itemName}>{item.name}</Text>
               <Text style={styles.itemCategory}>{item.category}</Text>
             </View>
-            <Text style={item.status === "ok" ? styles.okBadge : item.status === "low" ? styles.lowBadge : styles.outBadge}>
-              {item.status === "ok" ? "Disponible" : item.status === "low" ? "Stock Bajo" : "Agotado"}
+            <Text
+              style={
+                item.status === "ok"
+                  ? styles.okBadge
+                  : item.status === "low"
+                    ? styles.lowBadge
+                    : item.status === "excess"
+                      ? styles.excessBadge
+                      : styles.outBadge
+              }
+            >
+              {item.status === "ok" ? "Disponible" : item.status === "low" ? "Stock Bajo" : item.status === "excess" ? "Excedente" : "Agotado"}
             </Text>
           </View>
 
           <Text style={styles.itemQty}>{item.quantity} {item.unit}</Text>
-          <Text style={styles.itemMeta}>Mínimo: {item.minStock} {item.unit} • {item.lastUpdated}</Text>
+          <Text style={styles.itemMeta}>Mínimo: {item.minStock} {item.unit} • Máximo: {item.maxStock} {item.unit} • {item.lastUpdated}</Text>
 
           <View style={styles.buttonRow}>
             <TouchableOpacity
@@ -397,6 +480,7 @@ export default function Inventory() {
                   quantity: item.quantity,
                   unit: item.unit,
                   minStock: item.minStock,
+                  maxStock: item.maxStock,
                 });
               }}
             >
@@ -517,6 +601,16 @@ export default function Inventory() {
               keyboardType="numeric"
               value={String(newItem.minStock)}
               onChangeText={(text) => setNewItem({ ...newItem, minStock: Number(text) || 0 })}
+            />
+
+            <Text style={styles.addFieldLabel}>Stock Máximo</Text>
+            <TextInput
+              style={styles.addInput}
+              placeholder="0"
+              placeholderTextColor="#6b7280"
+              keyboardType="numeric"
+              value={String(newItem.maxStock)}
+              onChangeText={(text) => setNewItem({ ...newItem, maxStock: Number(text) || 0 })}
             />
 
             <TouchableOpacity style={styles.addSubmitButton} onPress={handleAddItem}>
@@ -678,6 +772,16 @@ export default function Inventory() {
               onChangeText={(text) => setEditItem({ ...editItem, minStock: Number(text) || 0 })}
             />
 
+            <Text style={styles.editFieldLabel}>Stock Máximo</Text>
+            <TextInput
+              style={styles.editInput}
+              placeholder="0"
+              placeholderTextColor="#6b7280"
+              keyboardType="numeric"
+              value={String(editItem.maxStock)}
+              onChangeText={(text) => setEditItem({ ...editItem, maxStock: Number(text) || 0 })}
+            />
+
             <TouchableOpacity style={styles.editSubmitButton} onPress={handleSaveEditItem}>
               <Text style={styles.editSubmitButtonText}>Guardar Cambios</Text>
             </TouchableOpacity>
@@ -822,6 +926,7 @@ const styles = StyleSheet.create({
   itemMeta: { fontSize: 12, color: "#6b7280", marginBottom: 8 },
   okBadge: { color: "#15803d", backgroundColor: "#dcfce7", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, fontSize: 11 },
   lowBadge: { color: "#b45309", backgroundColor: "#fef3c7", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, fontSize: 11 },
+  excessBadge: { color: "#1d4ed8", backgroundColor: "#dbeafe", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, fontSize: 11 },
   outBadge: { color: "#b91c1c", backgroundColor: "#fee2e2", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, fontSize: 11 },
   buttonRow: { flexDirection: "row", gap: 8 },
   primaryButton: { backgroundColor: "#f97316", borderRadius: 8, padding: 12, alignItems: "center" },

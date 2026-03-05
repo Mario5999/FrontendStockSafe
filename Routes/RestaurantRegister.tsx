@@ -2,11 +2,13 @@ import React, { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import { registerRestaurant } from "../services/api";
 
 export default function RestaurantRegister() {
   const navigation = useNavigation();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
     restaurantName: "",
@@ -23,16 +25,29 @@ export default function RestaurantRegister() {
     setFormData({ ...formData, [field]: value });
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    const hasEmpty = Object.values(formData).some((value) => !value.trim());
+    if (hasEmpty) {
+      Alert.alert("Error", "Completa todos los campos");
+      return;
+    }
+
     if (formData.password !== formData.confirmPassword) {
       Alert.alert("Error", "Las contraseñas no coinciden");
       return;
     }
 
-    console.log("Registrando restaurante:", formData);
-
-    // Navegar a otra pantalla (ejemplo: Setup)
-    navigation.navigate("Setup" as never);
+    try {
+      setIsSubmitting(true);
+      await registerRestaurant(formData);
+      Alert.alert("Éxito", "Restaurante registrado correctamente");
+      navigation.navigate("Setup" as never);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo registrar el restaurante.";
+      Alert.alert("Registro", message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -117,8 +132,8 @@ export default function RestaurantRegister() {
         />
 
         {/* Botón */}
-        <TouchableOpacity style={styles.button} onPress={handleSubmit}>
-          <Text style={styles.buttonText}>Registrar Restaurante</Text>
+        <TouchableOpacity style={styles.button} onPress={handleSubmit} disabled={isSubmitting}>
+          <Text style={styles.buttonText}>{isSubmitting ? "Registrando..." : "Registrar Restaurante"}</Text>
         </TouchableOpacity>
 
         <Text style={styles.terms}>

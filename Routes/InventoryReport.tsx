@@ -1,8 +1,10 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import * as Print from "expo-print";
+import { getInventoryPdfUrl, getProducts, pingInventoryPdf } from "../services/api";
 
 interface ProductMovement {
   id: number;
@@ -13,77 +15,15 @@ interface ProductMovement {
   exits: number;
   currentStock: number;
   unit: string;
-  status: "ok" | "low" | "out";
+  status: "ok" | "low" | "out" | "excess";
 }
 
-const mockMovements: ProductMovement[] = [
-  {
-    id: 1,
-    productName: "Tomate",
-    category: "Vegetales",
-    initialStock: 30,
-    entries: 20,
-    exits: 5,
-    currentStock: 45,
-    unit: "kg",
-    status: "ok",
-  },
-  {
-    id: 2,
-    productName: "Pollo",
-    category: "Carnes",
-    initialStock: 25,
-    entries: 10,
-    exits: 23,
-    currentStock: 12,
-    unit: "kg",
-    status: "low",
-  },
-  {
-    id: 3,
-    productName: "Arroz",
-    category: "Granos",
-    initialStock: 100,
-    entries: 50,
-    exits: 70,
-    currentStock: 80,
-    unit: "kg",
-    status: "ok",
-  },
-  {
-    id: 4,
-    productName: "Aceite de Oliva",
-    category: "Aceites",
-    initialStock: 15,
-    entries: 5,
-    exits: 20,
-    currentStock: 0,
-    unit: "L",
-    status: "out",
-  },
-  {
-    id: 5,
-    productName: "Cebolla",
-    category: "Vegetales",
-    initialStock: 20,
-    entries: 10,
-    exits: 5,
-    currentStock: 25,
-    unit: "kg",
-    status: "ok",
-  },
-  {
-    id: 6,
-    productName: "Queso",
-    category: "Lácteos",
-    initialStock: 15,
-    entries: 5,
-    exits: 12,
-    currentStock: 8,
-    unit: "kg",
-    status: "low",
-  },
-];
+const toMovementStatus = (quantity: number, minStock: number, maxStock: number): ProductMovement["status"] => {
+  if (quantity === 0) return "out";
+  if (quantity < minStock) return "low";
+  if (maxStock > 0 && quantity > maxStock) return "excess";
+  return "ok";
+};
 
 type InventoryReportRouteParams = {
   restaurantId?: string;
@@ -93,6 +33,7 @@ const statusLabels: Record<ProductMovement["status"], string> = {
   ok: "Disponible",
   low: "Stock Bajo",
   out: "Agotado",
+  excess: "Excedente",
 };
 
 export default function InventoryReport() {
@@ -100,13 +41,45 @@ export default function InventoryReport() {
   const route = useRoute();
   const routeParams = (route.params ?? {}) as InventoryReportRouteParams;
   const restaurantId = routeParams.restaurantId ?? "N/D";
-  const [movements] = useState<ProductMovement[]>(mockMovements);
+  const [movements, setMovements] = useState<ProductMovement[]>([]);
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const tableScrollRef = useRef<ScrollView | null>(null);
   const tableScrollX = useRef(0);
   const tableViewportWidth = useRef(0);
   const tableContentWidth = useRef(0);
+
+  useEffect(() => {
+    const loadReportData = async () => {
+      try {
+        const products = await getProducts();
+        setMovements(
+          products.map((product) => {
+            const entries = product.entradas ?? 0;
+            const exits = product.salidas ?? 0;
+            const initialStock = product.stockInicial ?? product.cantidad - entries + exits;
+
+            return {
+              id: product.id,
+              productName: product.nombre,
+              category: product.categoria,
+              initialStock,
+              entries,
+              exits,
+              currentStock: product.cantidad,
+              unit: product.unidad,
+              status: toMovementStatus(product.cantidad, product.stockMinimo, product.stockMaximo ?? product.stockExcedente ?? 0),
+            };
+          })
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "No se pudo cargar el reporte.";
+        Alert.alert("Reporte", message);
+      }
+    };
+
+    loadReportData();
+  }, []);
 
   const filteredMovements = movements.filter((movement) => {
     const matchesCategory = filterCategory === "all" || movement.category === filterCategory;
@@ -121,29 +94,41 @@ export default function InventoryReport() {
     totalEntries: filteredMovements.reduce((sum, m) => sum + m.entries, 0),
     totalExits: filteredMovements.reduce((sum, m) => sum + m.exits, 0),
     lowStock: filteredMovements.filter(m => m.status === "low").length,
+    excessStock: filteredMovements.filter(m => m.status === "excess").length,
     outOfStock: filteredMovements.filter(m => m.status === "out").length,
   };
 
   const getCurrentStockTextStyle = (status: ProductMovement["status"]) => {
     if (status === "ok") return styles.currentStockOk;
     if (status === "low") return styles.currentStockLow;
+    if (status === "excess") return styles.currentStockExcess;
     return styles.currentStockOut;
   };
 
   const getStatusBadgeStyle = (status: ProductMovement["status"]) => {
     if (status === "ok") return styles.statusBadgeOk;
     if (status === "low") return styles.statusBadgeLow;
+    if (status === "excess") return styles.statusBadgeExcess;
     return styles.statusBadgeOut;
   };
 
   const getStatusBadgeTextStyle = (status: ProductMovement["status"]) => {
     if (status === "ok") return styles.statusBadgeTextOk;
     if (status === "low") return styles.statusBadgeTextLow;
+    if (status === "excess") return styles.statusBadgeTextExcess;
     return styles.statusBadgeTextOut;
   };
 
-  const handleGeneratePDF = () => {
-    Alert.alert("Próximamente", "La exportación de PDF se habilitará en una próxima versión.");
+  const handleGeneratePDF = async () => {
+    try {
+      await pingInventoryPdf();
+      await Print.printAsync({
+        uri: getInventoryPdfUrl(),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo generar el PDF.";
+      Alert.alert("Reporte", message);
+    }
   };
 
   const handlePrint = () => {
@@ -185,9 +170,6 @@ export default function InventoryReport() {
         </View>
 
         <View style={styles.actionsRow}>
-          <TouchableOpacity style={[styles.actionButton, styles.actionSecondary]} onPress={handlePrint}>
-            <Text style={styles.actionSecondaryText}>Imprimir</Text>
-          </TouchableOpacity>
           <TouchableOpacity style={[styles.actionButton, styles.actionPrimary]} onPress={handleGeneratePDF}>
             <Text style={styles.actionPrimaryText}>Exportar PDF</Text>
           </TouchableOpacity>
@@ -218,6 +200,7 @@ export default function InventoryReport() {
             { key: "all", label: "Todos" },
             { key: "ok", label: "Disponible" },
             { key: "low", label: "Stock Bajo" },
+            { key: "excess", label: "Excedente" },
             { key: "out", label: "Agotado" },
           ].map((status) => (
             <TouchableOpacity
@@ -254,6 +237,10 @@ export default function InventoryReport() {
             <Text style={[styles.statValue, styles.warning]}>{stats.lowStock}</Text>
           </View>
           <View style={styles.statCard}>
+            <Text style={styles.statLabel}>Excedentes</Text>
+            <Text style={[styles.statValue, styles.info]}>{stats.excessStock}</Text>
+          </View>
+          <View style={styles.statCard}>
             <Text style={styles.statLabel}>Agotados</Text>
             <Text style={[styles.statValue, styles.negative]}>{stats.outOfStock}</Text>
           </View>
@@ -264,6 +251,7 @@ export default function InventoryReport() {
           ref={tableScrollRef}
           horizontal
           showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tableScrollContent}
           onScroll={(event) => {
             tableScrollX.current = event.nativeEvent.contentOffset.x;
           }}
@@ -398,18 +386,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  actionSecondary: {
-    borderWidth: 1,
-    borderColor: "#d1d5db",
-    backgroundColor: "#fff",
-  },
   actionPrimary: {
     backgroundColor: "#f97316",
-  },
-  actionSecondaryText: {
-    color: "#111827",
-    fontSize: 14,
-    fontWeight: "600",
   },
   actionPrimaryText: {
     color: "#fff",
@@ -508,6 +486,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     marginBottom: 12,
   },
+  tableScrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+  },
   tableScrollControlRow: {
     backgroundColor: "#2f2f2f",
     borderRadius: 6,
@@ -598,6 +580,9 @@ const styles = StyleSheet.create({
   statusBadgeLow: {
     backgroundColor: "#ffedd5",
   },
+  statusBadgeExcess: {
+    backgroundColor: "#dbeafe",
+  },
   statusBadgeOut: {
     backgroundColor: "#fee2e2",
   },
@@ -606,6 +591,9 @@ const styles = StyleSheet.create({
   },
   statusBadgeTextLow: {
     color: "#c2410c",
+  },
+  statusBadgeTextExcess: {
+    color: "#1d4ed8",
   },
   statusBadgeTextOut: {
     color: "#b91c1c",
@@ -618,6 +606,10 @@ const styles = StyleSheet.create({
     color: "#c2410c",
     fontWeight: "700",
   },
+  currentStockExcess: {
+    color: "#1d4ed8",
+    fontWeight: "700",
+  },
   currentStockOut: {
     color: "#b91c1c",
     fontWeight: "700",
@@ -627,6 +619,9 @@ const styles = StyleSheet.create({
   },
   warning: {
     color: "#c2410c",
+  },
+  info: {
+    color: "#1d4ed8",
   },
   negative: {
     color: "#b91c1c",

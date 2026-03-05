@@ -1,66 +1,47 @@
-import React, { useState } from "react";
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import { getRestaurants } from "../services/api";
 
 interface Restaurant {
   id: number;
-  name: string;
+  restaurantName: string;
   address: string;
   phone: string;
   email: string;
-  users: number;
-  itemsCount: number;
-  status: "active" | "inactive";
-  registeredDate: string;
+  managerName: string;
+  managerEmail: string;
 }
-
-const mockRestaurants: Restaurant[] = [
-  {
-    id: 1,
-    name: "La Casa del Sabor",
-    address: "Av. Principal 123, Ciudad",
-    phone: "+57 300 123 4567",
-    email: "info@casadelsabor.com",
-    users: 2,
-    itemsCount: 156,
-    status: "active",
-    registeredDate: "15 Ene 2026",
-  },
-  {
-    id: 2,
-    name: "El Rincón Gourmet",
-    address: "Calle 45 #67-89, Centro",
-    phone: "+57 300 234 5678",
-    email: "contacto@rincongourmet.com",
-    users: 2,
-    itemsCount: 203,
-    status: "active",
-    registeredDate: "18 Ene 2026",
-  },
-  {
-    id: 3,
-    name: "Delicias del Mar",
-    address: "Carrera 12 #34-56, Norte",
-    phone: "+57 300 345 6789",
-    email: "info@deliciasdelmar.com",
-    users: 2,
-    itemsCount: 98,
-    status: "active",
-    registeredDate: "20 Feb 2026",
-  },
-];
 
 export default function AdminDashboard() {
   const navigation = useNavigation();
-  const [restaurants] = useState<Restaurant[]>(mockRestaurants);
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+
+  useEffect(() => {
+    const loadRestaurants = async () => {
+      try {
+        setIsLoading(true);
+        const data = await getRestaurants();
+        setRestaurants(data);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "No se pudo cargar la lista.";
+        Alert.alert("Panel admin", message);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadRestaurants();
+  }, []);
 
   const handleLogout = () => {
     (navigation as any).navigate("Login");
   };
 
   const filteredRestaurants = restaurants.filter((restaurant) =>
-    restaurant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    restaurant.restaurantName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     restaurant.address.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -82,10 +63,12 @@ export default function AdminDashboard() {
           <Text style={styles.statLabel}>Restaurantes</Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{restaurants.reduce((acc, r) => acc + r.users, 0)}</Text>
+          <Text style={styles.statNumber}>{restaurants.length}</Text>
           <Text style={styles.statLabel}>Usuarios Totales</Text>
         </View>
       </View>
+
+      {isLoading && <Text style={styles.muted}>Cargando restaurantes...</Text>}
 
       <TextInput
         style={styles.input}
@@ -98,18 +81,18 @@ export default function AdminDashboard() {
 
       {filteredRestaurants.map((restaurant) => (
         <View key={restaurant.id} style={styles.card}>
-          <Text style={styles.restaurantName}>{restaurant.name}</Text>
+          <Text style={styles.restaurantName}>{restaurant.restaurantName}</Text>
           <Text style={styles.muted}>{restaurant.address}</Text>
           <Text style={styles.muted}>📧 {restaurant.email}</Text>
           <Text style={styles.muted}>📱 {restaurant.phone}</Text>
-          <Text style={styles.muted}>Usuarios: {restaurant.users} • Items: {restaurant.itemsCount}</Text>
-          <Text style={styles.muted}>Registrado: {restaurant.registeredDate}</Text>
+          <Text style={styles.muted}>Gerente: {restaurant.managerName}</Text>
+          <Text style={styles.muted}>Correo gerente: {restaurant.managerEmail}</Text>
 
           <TouchableOpacity
             style={styles.button}
             onPress={() =>
               (navigation as any).navigate("RestaurantDashboard", {
-                restaurantName: restaurant.name,
+                restaurantName: restaurant.restaurantName,
               })
             }
           >

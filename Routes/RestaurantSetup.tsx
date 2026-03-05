@@ -13,6 +13,7 @@ import { useNavigation } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { registerSystemUser } from "../services/api";
 
 interface UserData {
   name: string;
@@ -54,7 +55,7 @@ export default function RestaurantSetup() {
     }
   };
 
-  const handleAddUser = () => {
+  const handleAddUser = async () => {
     if (!newUser.name || !newUser.username || !newUser.password) {
       Alert.alert("Error", "Por favor completa todos los campos");
       return;
@@ -72,16 +73,28 @@ export default function RestaurantSetup() {
       return;
     }
 
-    const user: UserData = {
-      name: newUser.name,
-      username: newUser.username,
-      password: newUser.password,
-      role: currentRole,
-    };
+    try {
+      await registerSystemUser({
+        nombreCompleto: newUser.name,
+        nombreUsuario: newUser.username,
+        contrasena: newUser.password,
+        confirmarContrasena: newUser.password,
+      });
 
-    setUsers([...users, user]);
-    setNewUser({ name: "", username: "", password: "" });
-    setShowAddUser(false);
+      const user: UserData = {
+        name: newUser.name,
+        username: newUser.username,
+        password: newUser.password,
+        role: currentRole,
+      };
+
+      setUsers([...users, user]);
+      setNewUser({ name: "", username: "", password: "" });
+      setShowAddUser(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo registrar el usuario.";
+      Alert.alert("Usuarios", message);
+    }
   };
 
   const handleRemoveUser = (index: number) => {

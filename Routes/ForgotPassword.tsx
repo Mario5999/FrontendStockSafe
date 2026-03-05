@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import { requestPasswordReset } from "../services/api";
 
 export default function ForgotPassword() {
   const navigation = useNavigation();
@@ -9,12 +10,22 @@ export default function ForgotPassword() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
+  const handleSubmit = async () => {
+    if (!email.trim()) {
+      Alert.alert("Error", "Ingresa un correo electrónico");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      await requestPasswordReset(email.trim());
       setIsSubmitted(true);
-    }, 1500);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo enviar el correo.";
+      Alert.alert("Recuperación", message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (isSubmitted) {

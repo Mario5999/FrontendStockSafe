@@ -57,6 +57,7 @@ export default function RestaurantDashboard() {
   const stats = {
     totalItems: 156,
     lowStock: 12,
+    excessStock: 6,
     outOfStock: 3,
     recentUpdates: 8,
   };
@@ -175,6 +176,15 @@ export default function RestaurantDashboard() {
           <View style={styles.statTextWrap}>
             <Text style={styles.statNumber}>{stats.lowStock}</Text>
             <Text style={styles.statLabel}>Stock Bajo</Text>
+          </View>
+        </View>
+        <View style={styles.statCard}>
+          <View style={[styles.statIconWrap, styles.statIconIndigo]}>
+            <Ionicons name="layers-outline" size={18} color="#1d4ed8" />
+          </View>
+          <View style={styles.statTextWrap}>
+            <Text style={styles.statNumber}>{stats.excessStock}</Text>
+            <Text style={styles.statLabel}>Excedentes</Text>
           </View>
         </View>
         <View style={styles.statCard}>
@@ -434,6 +444,7 @@ const styles = StyleSheet.create({
   },
   statIconBlue: { backgroundColor: "#dbeafe" },
   statIconOrange: { backgroundColor: "#ffedd5" },
+  statIconIndigo: { backgroundColor: "#dbeafe" },
   statIconRed: { backgroundColor: "#fee2e2" },
   statIconGreen: { backgroundColor: "#dcfce7" },
   statTextWrap: { justifyContent: "center" },

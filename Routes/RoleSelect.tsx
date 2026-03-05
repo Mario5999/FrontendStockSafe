@@ -2,22 +2,7 @@ import React, { useState } from "react";
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-
-// Mock users - in real app would come from database
-const mockUsers = [
-  {
-    name: "María González",
-    username: "maria_manager",
-    password: "123456",
-    role: "manager" as const,
-  },
-  {
-    name: "Carlos Ramírez",
-    username: "carlos_staff",
-    password: "123456",
-    role: "employee" as const,
-  },
-];
+import { loginSystem } from "../services/api";
 
 export default function RoleSelect() {
   const navigation = useNavigation();
@@ -25,20 +10,33 @@ export default function RoleSelect() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = () => {
-    const user = mockUsers.find(
-      (u) => u.username === username && u.password === password && u.role === selectedRole
-    );
+  const handleLogin = async () => {
+    if (!selectedRole) {
+      Alert.alert("Error", "Selecciona un rol");
+      return;
+    }
 
-    if (user) {
+    if (!username.trim() || !password.trim()) {
+      Alert.alert("Error", "Ingresa usuario y contraseña");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      await loginSystem(username.trim(), password);
+
       if (selectedRole === "manager") {
         (navigation as any).push("Inventory");
       } else {
         (navigation as any).push("EmployeeInventory");
       }
-    } else {
-      Alert.alert("Error", "Usuario o contraseña incorrectos para el rol seleccionado");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Usuario o contraseña incorrectos.";
+      Alert.alert("Acceso", message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -100,8 +98,9 @@ export default function RoleSelect() {
             <TouchableOpacity
               style={[styles.button, selectedRole === "manager" ? styles.managerButton : styles.employeeButton]}
               onPress={handleLogin}
+              disabled={isLoading}
             >
-              <Text style={styles.buttonText}>Iniciar Sesión</Text>
+              <Text style={styles.buttonText}>{isLoading ? "Ingresando..." : "Iniciar Sesión"}</Text>
             </TouchableOpacity>
           </>
         )}

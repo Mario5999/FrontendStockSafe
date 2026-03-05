@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import { loginRestaurant, loginSystem } from "../services/api";
 
 export default function Login() {
   const navigation = useNavigation();
@@ -12,13 +13,43 @@ export default function Login() {
   const [restaurantPassword, setRestaurantPassword] = useState("");
   const [showRestaurantPassword, setShowRestaurantPassword] = useState(false);
   const [showAdminPassword, setShowAdminPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleAdminLogin = () => {
-    (navigation as any).navigate("AdminDashboard");
+  const handleAdminLogin = async () => {
+    if (!adminEmail.trim() || !adminPassword.trim()) {
+      Alert.alert("Error", "Ingresa usuario y contraseña de administrador");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      await loginSystem(adminEmail.trim(), adminPassword);
+      (navigation as any).navigate("AdminDashboard");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo iniciar sesión.";
+      Alert.alert("Login admin", message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleRestaurantLogin = () => {
-    (navigation as any).navigate("RestaurantDashboard", { restaurantName: "La Casa del Sabor" });
+  const handleRestaurantLogin = async () => {
+    if (!restaurantEmail.trim() || !restaurantPassword.trim()) {
+      Alert.alert("Error", "Ingresa correo y contraseña del restaurante");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      await loginRestaurant(restaurantEmail.trim(), restaurantPassword);
+      const restaurantName = restaurantEmail.split("@")[0] || "Restaurante";
+      (navigation as any).navigate("RestaurantDashboard", { restaurantName });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo iniciar sesión.";
+      Alert.alert("Login restaurante", message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -69,8 +100,8 @@ export default function Login() {
                 />
               </TouchableOpacity>
             </View>
-            <TouchableOpacity style={styles.primaryButton} onPress={handleRestaurantLogin}>
-              <Text style={styles.primaryButtonText}>Iniciar Sesión</Text>
+            <TouchableOpacity style={styles.primaryButton} onPress={handleRestaurantLogin} disabled={isLoading}>
+              <Text style={styles.primaryButtonText}>{isLoading ? "Ingresando..." : "Iniciar Sesión"}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => (navigation as any).navigate("ForgotPassword")}>
               <Text style={styles.link}>¿Olvidaste tu contraseña?</Text>
@@ -83,10 +114,9 @@ export default function Login() {
           <>
             <TextInput
               style={styles.input}
-              placeholder="📧​ Correo administrador"
+              placeholder="👤 Usuario administrador"
               value={adminEmail}
               onChangeText={setAdminEmail}
-              keyboardType="email-address"
               autoCapitalize="none"
             />
             <View style={styles.inputRow}>
@@ -105,8 +135,8 @@ export default function Login() {
                 />
               </TouchableOpacity>
             </View>
-            <TouchableOpacity style={[styles.primaryButton, styles.adminButton]} onPress={handleAdminLogin}>
-              <Text style={styles.primaryButtonText}>Iniciar Sesión</Text>
+            <TouchableOpacity style={[styles.primaryButton, styles.adminButton]} onPress={handleAdminLogin} disabled={isLoading}>
+              <Text style={styles.primaryButtonText}>{isLoading ? "Ingresando..." : "Iniciar Sesión"}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => (navigation as any).navigate("ForgotPassword")}>
               <Text style={styles.link}>¿Olvidaste tu contraseña?</Text>

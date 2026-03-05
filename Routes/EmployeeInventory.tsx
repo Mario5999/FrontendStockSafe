@@ -1,9 +1,17 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { MaterialIcons } from "@expo/vector-icons";
+import {
+  checkInventory,
+  getProducts,
+  getSections,
+  ProductDto,
+  SectionDto,
+  updateProductQuantity,
+} from "../services/api";
 
 interface InventoryItem {
   id: number;
@@ -12,7 +20,8 @@ interface InventoryItem {
   quantity: number;
   unit: string;
   minStock: number;
-  status: "ok" | "low" | "out";
+  maxStock: number;
+  status: "ok" | "low" | "out" | "excess";
   lastUpdated: string;
 }
 
@@ -21,31 +30,42 @@ interface Section {
   name: string;
 }
 
-const mockSections: Section[] = [
-  { id: 1, name: "Vegetales" },
-  { id: 2, name: "Carnes" },
-  { id: 3, name: "Granos" },
-  { id: 4, name: "Aceites" },
-  { id: 5, name: "Lácteos" },
-];
+type QuantityMovementType = "entry" | "exit";
 
-const mockInventory: InventoryItem[] = [
-  { id: 1, name: "Tomate", category: "Vegetales", quantity: 45, unit: "kg", minStock: 20, status: "ok", lastUpdated: "Hace 2 horas" },
-  { id: 2, name: "Pollo", category: "Carnes", quantity: 12, unit: "kg", minStock: 15, status: "low", lastUpdated: "Hace 1 hora" },
-  { id: 3, name: "Arroz", category: "Granos", quantity: 80, unit: "kg", minStock: 30, status: "ok", lastUpdated: "Hace 3 horas" },
-  { id: 4, name: "Aceite de Oliva", category: "Aceites", quantity: 0, unit: "L", minStock: 5, status: "out", lastUpdated: "Hace 5 horas" },
-  { id: 5, name: "Cebolla", category: "Vegetales", quantity: 25, unit: "kg", minStock: 10, status: "ok", lastUpdated: "Hace 1 hora" },
-  { id: 6, name: "Queso", category: "Lácteos", quantity: 8, unit: "kg", minStock: 12, status: "low", lastUpdated: "Hace 4 horas" },
-];
+const getStatus = (quantity: number, minStock: number, maxStock: number): "ok" | "low" | "out" | "excess" => {
+  if (quantity === 0) return "out";
+  if (quantity < minStock) return "low";
+  if (maxStock > 0 && quantity > maxStock) return "excess";
+  return "ok";
+};
+
+const mapProductToItem = (product: ProductDto): InventoryItem => ({
+  id: product.id,
+  name: product.nombre,
+  category: product.categoria,
+  quantity: product.cantidad,
+  unit: product.unidad,
+  minStock: product.stockMinimo,
+  maxStock: product.stockMaximo ?? product.stockExcedente ?? 0,
+  status: getStatus(product.cantidad, product.stockMinimo, product.stockMaximo ?? product.stockExcedente ?? 0),
+  lastUpdated: "Ahora",
+});
+
+const mapSectionToItem = (section: SectionDto): Section => ({
+  id: section.id,
+  name: section.nombre,
+});
 
 export default function EmployeeInventory() {
   const navigation = useNavigation();
-  const [items, setItems] = useState<InventoryItem[]>(mockInventory);
-  const [sections] = useState<Section[]>(mockSections);
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterSection, setFilterSection] = useState<string>("all");
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
+  const [selectedMovementType, setSelectedMovementType] = useState<QuantityMovementType | null>(null);
+  const [showMovementTypeModal, setShowMovementTypeModal] = useState(false);
   const [verifyingItemId, setVerifyingItemId] = useState<number | null>(null);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [newQuantity, setNewQuantity] = useState<string>("");
@@ -60,6 +80,21 @@ export default function EmployeeInventory() {
   const sectionViewportWidth = useRef(0);
   const sectionContentWidth = useRef(0);
 
+  useEffect(() => {
+    const loadInventoryData = async () => {
+      try {
+        const [apiSections, apiProducts] = await Promise.all([getSections(), getProducts()]);
+        setSections(apiSections.map(mapSectionToItem));
+        setItems(apiProducts.map(mapProductToItem));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "No se pudo cargar inventario.";
+        Alert.alert("Inventario", message);
+      }
+    };
+
+    loadInventoryData();
+  }, []);
+
   const filteredItems = items.filter((item) => {
     const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = filterStatus === "all" || item.status === filterStatus;
@@ -67,17 +102,25 @@ export default function EmployeeInventory() {
     return matchesSearch && matchesStatus && matchesSection;
   });
 
-  const getStatus = (quantity: number, minStock: number): "ok" | "low" | "out" => {
-    if (quantity === 0) return "out";
-    if (quantity < minStock) return "low";
-    return "ok";
-  };
-
   const editingItem = items.find((item) => item.id === editingItemId) || null;
   const verifyingItem = items.find((item) => item.id === verifyingItemId) || null;
 
   const closeUpdateModal = () => {
     setEditingItemId(null);
+    setSelectedMovementType(null);
+    setShowMovementTypeModal(false);
+    setNewQuantity("");
+  };
+
+  const handleSelectMovementType = (movementType: QuantityMovementType) => {
+    setSelectedMovementType(movementType);
+    setNewQuantity("");
+    setShowMovementTypeModal(false);
+  };
+
+  const handleBackToMovementType = () => {
+    setSelectedMovementType(null);
+    setShowMovementTypeModal(true);
     setNewQuantity("");
   };
 
@@ -86,30 +129,35 @@ export default function EmployeeInventory() {
     setVerifiedQuantity("");
   };
 
-  const handleUpdateQuantity = () => {
-    if (!editingItem) return;
+  const handleUpdateQuantity = async () => {
+    if (!editingItem || !selectedMovementType) return;
     const value = Number(newQuantity);
-    if (Number.isNaN(value) || value < 0) {
-      Alert.alert("Error", "Ingresa una cantidad válida");
+    if (Number.isNaN(value) || value <= 0) {
+      Alert.alert("Error", "Ingresa una cantidad válida mayor a 0");
       return;
     }
 
-    setItems(
-      items.map((currentItem) =>
-        currentItem.id === editingItem.id
-          ? {
-              ...currentItem,
-              quantity: value,
-              status: getStatus(value, currentItem.minStock),
-              lastUpdated: "Ahora",
-            }
-          : currentItem
-      )
-    );
-    closeUpdateModal();
+    const updatedQuantity =
+      selectedMovementType === "entry"
+        ? editingItem.quantity + value
+        : editingItem.quantity - value;
+
+    if (updatedQuantity < 0) {
+      Alert.alert("Error", "La salida no puede dejar cantidad negativa");
+      return;
+    }
+
+    try {
+      const updated = await updateProductQuantity(editingItem.id, updatedQuantity);
+      setItems((prev) => prev.map((currentItem) => (currentItem.id === editingItem.id ? mapProductToItem(updated) : currentItem)));
+      closeUpdateModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo actualizar la cantidad.";
+      Alert.alert("Inventario", message);
+    }
   };
 
-  const handleVerifyQuantity = () => {
+  const handleVerifyQuantity = async () => {
     if (!verifyingItem) return;
     const value = Number(verifiedQuantity);
     if (Number.isNaN(value) || value < 0) {
@@ -117,19 +165,29 @@ export default function EmployeeInventory() {
       return;
     }
 
-    const matches = value === verifyingItem.quantity;
-    setVerifiedItems((prev) => {
-      const next = new Map(prev);
-      next.set(verifyingItem.id, { verified: true, matches, verifiedQty: value });
-      return next;
-    });
-    closeVerifyModal();
+    try {
+      const response = await checkInventory(verifyingItem.id, value);
+      setVerifiedItems((prev) => {
+        const next = new Map(prev);
+        next.set(verifyingItem.id, {
+          verified: true,
+          matches: response.status === "ok",
+          verifiedQty: value,
+        });
+        return next;
+      });
+      closeVerifyModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo verificar el inventario.";
+      Alert.alert("Inventario", message);
+    }
   };
 
   const stats = {
     total: items.length,
     verified: Array.from(verifiedItems.values()).filter((value) => value.verified).length,
     lowStock: items.filter((item) => item.status === "low").length,
+    excessStock: items.filter((item) => item.status === "excess").length,
     outOfStock: items.filter((item) => item.status === "out").length,
   };
 
@@ -188,8 +246,9 @@ export default function EmployeeInventory() {
       <Text style={styles.roleCount}>Verificado: {stats.verified}/{stats.total}</Text>
 
       <View style={styles.statsRow}>
-        <View style={[styles.statCard, styles.statCardOk]}><Text style={[styles.statNumber, styles.statOkNumber]}>{stats.total - stats.lowStock - stats.outOfStock}</Text><Text style={[styles.statLabel, styles.statOkLabel]}>Disponibles</Text></View>
+        <View style={[styles.statCard, styles.statCardOk]}><Text style={[styles.statNumber, styles.statOkNumber]}>{stats.total - stats.lowStock - stats.outOfStock - stats.excessStock}</Text><Text style={[styles.statLabel, styles.statOkLabel]}>Disponibles</Text></View>
         <View style={[styles.statCard, styles.statCardLow]}><Text style={[styles.statNumber, styles.statLowNumber]}>{stats.lowStock}</Text><Text style={[styles.statLabel, styles.statLowLabel]}>Stock Bajo</Text></View>
+        <View style={[styles.statCard, styles.statCardExcess]}><Text style={[styles.statNumber, styles.statExcessNumber]}>{stats.excessStock}</Text><Text style={[styles.statLabel, styles.statExcessLabel]}>Excedentes</Text></View>
         <View style={[styles.statCard, styles.statCardOut]}><Text style={[styles.statNumber, styles.statOutNumber]}>{stats.outOfStock}</Text><Text style={[styles.statLabel, styles.statOutLabel]}>Agotados</Text></View>
       </View>
 
@@ -217,6 +276,7 @@ export default function EmployeeInventory() {
           { key: "all", label: "◯ Todos" },
           { key: "ok", label: "Disponibles" },
           { key: "low", label: "Stock Bajo" },
+          { key: "excess", label: "Excedentes" },
           { key: "out", label: "Agotados" },
         ].map((filter) => (
           <TouchableOpacity key={filter.key} style={[styles.chip, filterStatus === filter.key && styles.chipActive]} onPress={() => setFilterStatus(filter.key)}>
@@ -283,13 +343,23 @@ export default function EmployeeInventory() {
                 <Text style={styles.itemName}>{item.name}</Text>
                 <Text style={styles.itemCategory}>{item.category}</Text>
               </View>
-              <Text style={item.status === "ok" ? styles.okBadge : item.status === "low" ? styles.lowBadge : styles.outBadge}>
-                {item.status === "ok" ? "Disponible" : item.status === "low" ? "Stock Bajo" : "Agotado"}
+              <Text
+                style={
+                  item.status === "ok"
+                    ? styles.okBadge
+                    : item.status === "low"
+                      ? styles.lowBadge
+                      : item.status === "excess"
+                        ? styles.excessBadge
+                        : styles.outBadge
+                }
+              >
+                {item.status === "ok" ? "Disponible" : item.status === "low" ? "Stock Bajo" : item.status === "excess" ? "Excedente" : "Agotado"}
               </Text>
             </View>
 
             <Text style={styles.itemQty}>{item.quantity} {item.unit}</Text>
-            <Text style={styles.itemMeta}>Mínimo: {item.minStock} {item.unit} • {item.lastUpdated}</Text>
+            <Text style={styles.itemMeta}>Mínimo: {item.minStock} {item.unit} • Máximo: {item.maxStock} {item.unit} • {item.lastUpdated}</Text>
 
             {isVerified && (
               <Text style={[styles.verifyText, matches ? styles.verifyOk : styles.verifyWarn]}>
@@ -302,7 +372,9 @@ export default function EmployeeInventory() {
                 style={styles.secondaryButton}
                 onPress={() => {
                   setEditingItemId(item.id);
-                  setNewQuantity(String(item.quantity));
+                  setSelectedMovementType(null);
+                  setNewQuantity("");
+                  setShowMovementTypeModal(true);
                 }}
               >
                 <Text style={styles.secondaryButtonText}>📝​ Actualizar Cantidad</Text>
@@ -321,15 +393,56 @@ export default function EmployeeInventory() {
         );
       })}
 
-      <Modal visible={editingItem !== null} transparent animationType="fade" onRequestClose={closeUpdateModal}>
+      <Modal visible={showMovementTypeModal && editingItem !== null} transparent animationType="fade" onRequestClose={closeUpdateModal}>
         <View style={styles.modalBackdrop}>
           <View style={styles.employeeModalCard}>
             <TouchableOpacity style={styles.employeeModalClose} onPress={closeUpdateModal}>
               <Text style={styles.employeeModalCloseText}>✕</Text>
             </TouchableOpacity>
 
-            <Text style={styles.employeeModalTitle}>Actualizar Cantidad</Text>
-            <Text style={styles.employeeModalSubtitle}>Modifica la cantidad disponible del producto</Text>
+            <Text style={styles.employeeModalTitle}>Tipo de Movimiento</Text>
+            <Text style={styles.employeeModalSubtitle}>Elige si vas a registrar una entrada o salida de producto</Text>
+
+            {editingItem && (
+              <>
+                <View style={styles.employeeInfoBox}>
+                  <View style={styles.employeeInfoRow}>
+                    <Text style={styles.employeeInfoLabel}>Producto:</Text>
+                    <Text style={styles.employeeInfoValue}>{editingItem.name}</Text>
+                  </View>
+                  <View style={styles.employeeInfoRow}>
+                    <Text style={styles.employeeInfoLabel}>Cantidad Actual:</Text>
+                    <Text style={styles.employeeInfoQty}>{editingItem.quantity} {editingItem.unit}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.movementTypeButtonColumn}>
+                  <TouchableOpacity style={[styles.movementTypeButton, styles.movementTypeEntryButton]} onPress={() => handleSelectMovementType("entry")}>
+                    <Text style={[styles.movementTypeButtonText, styles.movementTypeEntryButtonText]}>Entrada de Producto</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.movementTypeButton, styles.movementTypeExitButton]} onPress={() => handleSelectMovementType("exit")}>
+                    <Text style={[styles.movementTypeButtonText, styles.movementTypeExitButtonText]}>Salida de Producto</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={editingItem !== null && selectedMovementType !== null} transparent animationType="fade" onRequestClose={closeUpdateModal}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.employeeModalCard}>
+            <TouchableOpacity style={styles.employeeModalClose} onPress={closeUpdateModal}>
+              <Text style={styles.employeeModalCloseText}>✕</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.employeeModalTitle}>{selectedMovementType === "entry" ? "Entrada de Producto" : "Salida de Producto"}</Text>
+            <Text style={styles.employeeModalSubtitle}>
+              {selectedMovementType === "entry"
+                ? "Ingresa la cantidad que se agrega al inventario"
+                : "Ingresa la cantidad que se retira del inventario"}
+            </Text>
 
             {editingItem && (
               <>
@@ -348,21 +461,31 @@ export default function EmployeeInventory() {
                   </View>
                 </View>
 
-                <Text style={styles.employeeFieldLabel}>Nueva Cantidad ({editingItem.unit})</Text>
+                <Text style={styles.employeeFieldLabel}>
+                  {selectedMovementType === "entry" ? "Cantidad de Entrada" : "Cantidad de Salida"} ({editingItem.unit})
+                </Text>
                 <TextInput
                   style={styles.employeeInput}
                   keyboardType="numeric"
                   value={newQuantity}
                   onChangeText={setNewQuantity}
                 />
-                <Text style={styles.employeeHint}>Stock mínimo recomendado: {editingItem.minStock} {editingItem.unit}</Text>
+                <Text style={styles.employeeHint}>Stock mínimo recomendado: {editingItem.minStock} {editingItem.unit} • Stock máximo: {editingItem.maxStock} {editingItem.unit}</Text>
 
                 <View style={styles.employeeNoteBox}>
-                  <Text style={styles.employeeNoteText}>ℹ️ Nota: Como empleado, puedes actualizar las cantidades del inventario. Para agregar o eliminar productos, contacta al gerente.</Text>
+                  <Text style={styles.employeeNoteText}>
+                    {selectedMovementType === "entry"
+                      ? "ℹ️ Nota: Registra solo la cantidad que ingresó. El sistema la sumará a la existencia actual."
+                      : "ℹ️ Nota: Registra solo la cantidad que salió. El sistema la restará de la existencia actual."}
+                  </Text>
                 </View>
 
                 <TouchableOpacity style={styles.employeePrimaryButton} onPress={handleUpdateQuantity}>
-                  <Text style={styles.employeePrimaryButtonText}>Guardar Cantidad</Text>
+                  <Text style={styles.employeePrimaryButtonText}>{selectedMovementType === "entry" ? "Registrar Entrada" : "Registrar Salida"}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.employeeSecondaryModalButton} onPress={handleBackToMovementType}>
+                  <Text style={styles.employeeSecondaryModalButtonText}>Volver</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -506,17 +629,20 @@ const styles = StyleSheet.create({
   },
   reportButtonText: { color: "#ea580c", fontWeight: "700", fontSize: 12 },
   statsRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
-  statCard: { width: "32%", borderRadius: 8, padding: 10, alignItems: "center" },
+  statCard: { width: "24%", borderRadius: 8, padding: 10, alignItems: "center" },
   statCardOk: { backgroundColor: "#dcfce7" },
   statCardLow: { backgroundColor: "#ffedd5" },
+  statCardExcess: { backgroundColor: "#dbeafe" },
   statCardOut: { backgroundColor: "#fee2e2" },
   statNumber: { fontSize: 18, fontWeight: "700", color: "#111" },
   statLabel: { fontSize: 11 },
   statOkNumber: { color: "#15803d" },
   statLowNumber: { color: "#c2410c" },
+  statExcessNumber: { color: "#1d4ed8" },
   statOutNumber: { color: "#b91c1c" },
   statOkLabel: { color: "#15803d" },
   statLowLabel: { color: "#c2410c" },
+  statExcessLabel: { color: "#1d4ed8" },
   statOutLabel: { color: "#b91c1c" },
   input: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 10, backgroundColor: "#fff", marginBottom: 8 },
   filterTitle: { fontSize: 12, color: "#4b5563", fontWeight: "700", marginBottom: 6 },
@@ -564,6 +690,7 @@ const styles = StyleSheet.create({
   verifyWarn: { color: "#b91c1c" },
   okBadge: { color: "#15803d", backgroundColor: "#dcfce7", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, fontSize: 11 },
   lowBadge: { color: "#b45309", backgroundColor: "#fef3c7", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, fontSize: 11 },
+  excessBadge: { color: "#1d4ed8", backgroundColor: "#dbeafe", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, fontSize: 11 },
   outBadge: { color: "#b91c1c", backgroundColor: "#fee2e2", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, fontSize: 11 },
   buttonRow: { flexDirection: "row", gap: 8 },
   secondaryButton: { flex: 1, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 10, alignItems: "center", backgroundColor: "#fff" },
@@ -627,6 +754,47 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   employeePrimaryButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  employeeSecondaryModalButton: {
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  employeeSecondaryModalButtonText: {
+    color: "#111827",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+  movementTypeButtonColumn: {
+    gap: 10,
+  },
+  movementTypeButton: {
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  movementTypeEntryButton: {
+    borderColor: "#93c5fd",
+    backgroundColor: "#eff6ff",
+  },
+  movementTypeExitButton: {
+    borderColor: "#fca5a5",
+    backgroundColor: "#fef2f2",
+  },
+  movementTypeButtonText: {
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  movementTypeEntryButtonText: {
+    color: "#1d4ed8",
+  },
+  movementTypeExitButtonText: {
+    color: "#b91c1c",
+  },
   logoutModalCard: {
     backgroundColor: "#fff",
     borderRadius: 12,

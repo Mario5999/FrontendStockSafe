@@ -1,16 +1,21 @@
 import React, { useState } from "react";
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { resetPassword } from "../services/api";
 
 export default function ResetPassword() {
   const navigation = useNavigation();
+  const route = useRoute();
+  const routeParams = (route.params ?? {}) as { token?: string };
+  const [token, setToken] = useState(routeParams.token ?? "");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const hasMinLength = newPassword.length >= 8;
   const hasUpperCase = /[A-Z]/.test(newPassword);
@@ -20,7 +25,12 @@ export default function ResetPassword() {
 
   const isPasswordValid = hasMinLength && hasUpperCase && hasLowerCase && hasNumber;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (!token.trim()) {
+      Alert.alert("Error", "Ingresa el token de recuperación");
+      return;
+    }
+
     if (!isPasswordValid) {
       Alert.alert("Error", "La contraseña no cumple con los requisitos");
       return;
@@ -31,7 +41,16 @@ export default function ResetPassword() {
       return;
     }
 
-    setIsSuccess(true);
+    try {
+      setIsSubmitting(true);
+      await resetPassword(token.trim(), newPassword);
+      setIsSuccess(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo actualizar la contraseña.";
+      Alert.alert("Restablecer contraseña", message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (isSuccess) {
@@ -63,6 +82,16 @@ export default function ResetPassword() {
       <View style={styles.card}>
         <Text style={styles.title}>Nueva Contraseña</Text>
         <Text style={styles.subText}>Crea una contraseña segura para tu cuenta</Text>
+
+        <Text style={styles.fieldLabel}>Token de Recuperación</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Ingresa el token recibido"
+          placeholderTextColor="#9ca3af"
+          value={token}
+          onChangeText={setToken}
+          autoCapitalize="none"
+        />
 
         <Text style={styles.fieldLabel}>Nueva Contraseña</Text>
         <View style={styles.inputRow}>
@@ -114,9 +143,9 @@ export default function ResetPassword() {
         <TouchableOpacity
           style={[styles.primaryButton, (!isPasswordValid || !passwordsMatch) && styles.disabledButton]}
           onPress={handleSubmit}
-          disabled={!isPasswordValid || !passwordsMatch}
+          disabled={!isPasswordValid || !passwordsMatch || isSubmitting}
         >
-          <Text style={styles.primaryText}>Restablecer Contraseña</Text>
+          <Text style={styles.primaryText}>{isSubmitting ? "Actualizando..." : "Restablecer Contraseña"}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
