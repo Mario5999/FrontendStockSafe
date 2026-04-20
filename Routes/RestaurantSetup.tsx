@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Alert,
   Image,
@@ -9,11 +9,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { registerSystemUser } from "../services/api";
+import { getRestaurantLogoUri, saveRestaurantLogoUri } from "../services/localRestaurantLogo";
 
 interface UserData {
   name: string;
@@ -24,6 +25,9 @@ interface UserData {
 
 export default function RestaurantSetup() {
   const navigation = useNavigation();
+  const route = useRoute();
+  const params = (route.params as { restaurantId?: number; restaurantName?: string } | undefined) || {};
+  const restaurantId = params.restaurantId;
   const [profileImage, setProfileImage] = useState<string>("");
   const [users, setUsers] = useState<UserData[]>([]);
   const [showAddUser, setShowAddUser] = useState(false);
@@ -35,6 +39,23 @@ export default function RestaurantSetup() {
   });
   const [showNewUserPassword, setShowNewUserPassword] = useState(false);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadSavedProfileImage = async () => {
+      const savedUri = await getRestaurantLogoUri(restaurantId);
+      if (isMounted && savedUri) {
+        setProfileImage(savedUri);
+      }
+    };
+
+    loadSavedProfileImage();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [restaurantId]);
+
   const pickProfileImage = async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
@@ -45,17 +66,23 @@ export default function RestaurantSetup() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      allowsEditing: true,
+      allowsEditing: false,
       quality: 0.8,
-      aspect: [1, 1],
     });
 
     if (!result.canceled && result.assets.length > 0) {
-      setProfileImage(result.assets[0].uri);
+      const selectedUri = result.assets[0].uri;
+      const persistedUri = await saveRestaurantLogoUri(restaurantId, selectedUri);
+      setProfileImage(persistedUri);
     }
   };
 
   const handleAddUser = async () => {
+    if (!restaurantId) {
+      Alert.alert("Error", "No se encontró el restaurante actual. Vuelve a registrarlo.");
+      return;
+    }
+
     if (!newUser.name || !newUser.username || !newUser.password) {
       Alert.alert("Error", "Por favor completa todos los campos");
       return;
@@ -75,10 +102,12 @@ export default function RestaurantSetup() {
 
     try {
       await registerSystemUser({
+        restauranteId: restaurantId,
         nombreCompleto: newUser.name,
         nombreUsuario: newUser.username,
         contrasena: newUser.password,
         confirmarContrasena: newUser.password,
+        rol: currentRole,
       });
 
       const user: UserData = {
@@ -113,10 +142,11 @@ export default function RestaurantSetup() {
       role,
     }));
 
-    console.log("Configuración completa:", { profileImage, users: dashboardUsers });
     (navigation as any).navigate("RestaurantDashboard", {
       profileImage,
       users: dashboardUsers,
+      restaurantId,
+      restaurantName: params.restaurantName,
     });
   };
 

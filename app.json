@@ -4,7 +4,7 @@
     "slug": "StockSafe",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/app-icon-from-images.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -16,15 +16,22 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/app-icon-from-images.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.stocksafe.v1"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/app-icon-from-images.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "3d40fb04-09a0-4ad9-ad5c-731fcdf0b74b"
+      }
+    },
+    "plugins": [
+      "expo-font"
+    ]
   }
 }

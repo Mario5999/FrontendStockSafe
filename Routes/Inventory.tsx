@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -59,6 +59,8 @@ const mapSectionToItem = (section: SectionDto): Section => ({
 
 export default function Inventory() {
   const navigation = useNavigation();
+  const route = useRoute();
+  const params = (route.params as { restaurantId?: number; restaurantName?: string } | undefined) || {};
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -106,7 +108,7 @@ export default function Inventory() {
     return matchesSearch && matchesStatus && matchesSection;
   });
 
-  const unitOptions = ["kg", "L", "unidades"];
+  const unitOptions = ["kg", "L", "Pza"];
 
   const closeAddModal = () => {
     setShowAddItem(false);
@@ -320,7 +322,10 @@ export default function Inventory() {
 
   const handleConfirmLogout = () => {
     setShowLogoutModal(false);
-    navigation.navigate("RoleSelect" as never);
+    (navigation as any).navigate("RoleSelect", {
+      restaurantId: params.restaurantId,
+      restaurantName: params.restaurantName,
+    });
   };
 
   return (

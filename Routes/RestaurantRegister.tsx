@@ -2,13 +2,15 @@ import React, { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { registerRestaurant } from "../services/api";
+import { registerRestaurant, setAuthToken } from "../services/api";
 
 export default function RestaurantRegister() {
   const navigation = useNavigation();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [showTermsError, setShowTermsError] = useState(false);
 
   const [formData, setFormData] = useState({
     restaurantName: "",
@@ -21,6 +23,15 @@ export default function RestaurantRegister() {
     managerEmail: "",
   });
 
+  const passwordRequirementText =
+    "La contrasena debe tener al menos 8 caracteres, con una mayuscula, una minuscula, un numero y un simbolo.";
+  const passwordIsValid =
+    formData.password.length >= 8 &&
+    /[A-Z]/.test(formData.password) &&
+    /[a-z]/.test(formData.password) &&
+    /\d/.test(formData.password) &&
+    /[^A-Za-z0-9]/.test(formData.password);
+
   const handleChange = (field: string, value: string) => {
     setFormData({ ...formData, [field]: value });
   };
@@ -32,16 +43,32 @@ export default function RestaurantRegister() {
       return;
     }
 
+    if (!passwordIsValid) {
+      Alert.alert("Error", passwordRequirementText);
+      return;
+    }
+
     if (formData.password !== formData.confirmPassword) {
       Alert.alert("Error", "Las contraseñas no coinciden");
       return;
     }
 
+    if (!acceptedTerms) {
+      setShowTermsError(true);
+      return;
+    }
+
     try {
       setIsSubmitting(true);
-      await registerRestaurant(formData);
-      Alert.alert("Éxito", "Restaurante registrado correctamente");
-      navigation.navigate("Setup" as never);
+      const created = await registerRestaurant(formData);
+      if (created.token) {
+        setAuthToken(created.token);
+      }
+      Alert.alert("Registro Exitoso", "Restaurante registrado correctamente");
+      (navigation as any).navigate("Setup", {
+        restaurantId: created.data.id,
+        restaurantName: created.data.restaurantName,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "No se pudo registrar el restaurante.";
       Alert.alert("Registro", message);
@@ -102,6 +129,14 @@ export default function RestaurantRegister() {
             <Ionicons name={showPassword ? "eye-off" : "eye"} size={22} color="#6b7280" />
           </TouchableOpacity>
         </View>
+        <Text style={styles.passwordHint}>{passwordRequirementText}</Text>
+        {formData.password.length > 0 && !passwordIsValid ? (
+          <Text style={styles.passwordError}>
+            {formData.password.length < 8
+              ? "La contraseña tiene menos de 8 caracteres."
+              : "La contraseña aun no cumple todos los requisitos."}
+          </Text>
+        ) : null}
         <View style={styles.inputRow}>
           <TextInput
             style={styles.passwordInput}
@@ -131,14 +166,39 @@ export default function RestaurantRegister() {
           onChangeText={(text) => handleChange("managerEmail", text)}
         />
 
+        <View style={styles.termsRow}>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => {
+              setAcceptedTerms((prev) => {
+                const nextValue = !prev;
+                if (nextValue) setShowTermsError(false);
+                return nextValue;
+              });
+            }}
+          >
+            <View style={[styles.checkbox, acceptedTerms && styles.checkboxChecked]}>
+              {acceptedTerms ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
+            </View>
+          </TouchableOpacity>
+          <Text style={styles.checkboxLabel}>
+            He leído y acepto los{" "}
+            <Text
+              style={styles.checkboxLink}
+              onPress={() => (navigation as any).navigate("TermsAndConditions")}
+            >
+              términos y condiciones
+            </Text>
+          </Text>
+        </View>
+
         {/* Botón */}
         <TouchableOpacity style={styles.button} onPress={handleSubmit} disabled={isSubmitting}>
           <Text style={styles.buttonText}>{isSubmitting ? "Registrando..." : "Registrar Restaurante"}</Text>
         </TouchableOpacity>
-
-        <Text style={styles.terms}>
-          Al registrarte, aceptas nuestros términos y condiciones
-        </Text>
+        {showTermsError ? (
+          <Text style={styles.termsError}>Debes de aceptar los términos y condiciones</Text>
+        ) : null}
       </View>
     </ScrollView>
   );
@@ -174,13 +234,60 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   passwordInput: { flex: 1, paddingVertical: 10 },
+  passwordHint: {
+    color: "#6b7280",
+    fontSize: 12,
+    marginTop: -4,
+    marginBottom: 6,
+  },
+  passwordError: {
+    color: "#dc2626",
+    fontSize: 12,
+    marginTop: -2,
+    marginBottom: 8,
+    fontWeight: "600",
+  },
   button: {
     backgroundColor: "#f97316",
     padding: 14,
     borderRadius: 6,
     alignItems: "center",
-    marginTop: 10,
+    marginTop: 15,
   },
   buttonText: { color: "#fff", fontWeight: "bold" },
   terms: { fontSize: 12, color: "#666", textAlign: "center", marginTop: 10 },
+  termsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    marginTop: 10,
+    backgroundColor: "#fff",
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#9ca3af",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+  checkboxChecked: {
+    backgroundColor: "#f97316",
+    borderColor: "#f97316",
+  },
+  checkboxLabel: { flex: 1, color: "#374151", fontSize: 13 },
+  checkboxLink: { color: "#f97316", fontWeight: "700", textDecorationLine: "underline" },
+  termsError: {
+    color: "#dc2626",
+    textAlign: "center",
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: "600",
+  },
 });

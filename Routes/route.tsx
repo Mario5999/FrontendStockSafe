@@ -8,10 +8,12 @@ import ForgotPassword from "./ForgotPassword";
 import ResetPassword from "./ResetPassword";
 import AdminDashboard from "./AdminDashboard";
 import RestaurantDashboard from "./RestaurantDashboard";
+import RestaurantReports from "./RestaurantReports";
 import RoleSelect from "./RoleSelect";
 import Inventory from "./Inventory";
 import EmployeeInventory from "./EmployeeInventory";
 import InventoryReport from "./InventoryReport";
+import TermsAndConditions from "./TermsAndConditions";
 import NotFound from "./NotFound";
 
 const Stack = createNativeStackNavigator();
@@ -43,9 +45,11 @@ export function Router() {
       <Stack.Screen name="ResetPassword" component={ResetPassword}
         options={{ headerShown: false }} />
       <Stack.Screen name="AdminDashboard" component={AdminDashboard} 
-        options={{ headerShown: true }} />
+        options={{ headerShown: false }} />
       <Stack.Screen name="RestaurantDashboard" component={RestaurantDashboard} 
         options= {{ headerShown: false}} />
+            <Stack.Screen name="RestaurantReports" component={RestaurantReports}
+              options={{ headerShown: false }} />
       <Stack.Screen name="RoleSelect" component={RoleSelect}
         options={{ headerShown: false }} />
       <Stack.Screen name="Inventory" component={Inventory}
@@ -53,6 +57,8 @@ export function Router() {
       <Stack.Screen name="EmployeeInventory" component={EmployeeInventory} 
         options={{ headerShown: false}}/>
       <Stack.Screen name="InventoryReport" component={InventoryReport} 
+        options={{ headerShown: false }} />
+      <Stack.Screen name="TermsAndConditions" component={TermsAndConditions} 
         options={{ headerShown: false }} />
       <Stack.Screen name="NotFound" component={NotFound} />
     </Stack.Navigator>

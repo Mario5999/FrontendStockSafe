@@ -1,11 +1,18 @@
 import React, { useState } from "react";
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { loginSystem } from "../services/api";
+import { loginSystem, setAuthToken } from "../services/api";
+
+interface RoleSelectParams {
+  restaurantId?: number;
+  restaurantName?: string;
+}
 
 export default function RoleSelect() {
   const navigation = useNavigation();
+  const route = useRoute();
+  const params = (route.params as RoleSelectParams | undefined) || {};
   const [selectedRole, setSelectedRole] = useState<"manager" | "employee" | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -25,12 +32,30 @@ export default function RoleSelect() {
 
     try {
       setIsLoading(true);
-      await loginSystem(username.trim(), password);
+      const response = await loginSystem(username.trim(), password);
+      setAuthToken(response.token);
+
+      if (response.usuario.rol !== selectedRole) {
+        const selectedRoleLabel = selectedRole === "manager" ? "Gerente" : "Empleado";
+        const userRoleLabel = response.usuario.rol === "manager" ? "gerente" : "empleado";
+
+        Alert.alert(
+          "Acceso denegado",
+          `Seleccionaste ${selectedRoleLabel}, pero este usuario es ${userRoleLabel}.`
+        );
+        return;
+      }
 
       if (selectedRole === "manager") {
-        (navigation as any).push("Inventory");
+        (navigation as any).push("Inventory", {
+          restaurantId: params.restaurantId,
+          restaurantName: params.restaurantName,
+        });
       } else {
-        (navigation as any).push("EmployeeInventory");
+        (navigation as any).push("EmployeeInventory", {
+          restaurantId: params.restaurantId,
+          restaurantName: params.restaurantName,
+        });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Usuario o contraseña incorrectos.";
@@ -46,7 +71,10 @@ export default function RoleSelect() {
       setUsername("");
       setPassword("");
     } else {
-      (navigation as any).navigate("RestaurantDashboard");
+      (navigation as any).navigate("RestaurantDashboard", {
+        restaurantId: params.restaurantId,
+        restaurantName: params.restaurantName,
+      });
     }
   };
 

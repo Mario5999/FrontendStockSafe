@@ -3,12 +3,14 @@ import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "reac
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { resetPassword } from "../services/api";
+import { resetPassword, resetPasswordInternal } from "../services/api";
 
 export default function ResetPassword() {
   const navigation = useNavigation();
   const route = useRoute();
-  const routeParams = (route.params ?? {}) as { token?: string };
+  const routeParams = (route.params ?? {}) as { token?: string; email?: string; internalMode?: boolean };
+  const internalMode = Boolean(routeParams.internalMode);
+  const recoveryEmail = routeParams.email ?? "";
   const [token, setToken] = useState(routeParams.token ?? "");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -26,8 +28,13 @@ export default function ResetPassword() {
   const isPasswordValid = hasMinLength && hasUpperCase && hasLowerCase && hasNumber;
 
   const handleSubmit = async () => {
-    if (!token.trim()) {
+    if (!internalMode && !token.trim()) {
       Alert.alert("Error", "Ingresa el token de recuperación");
+      return;
+    }
+
+    if (internalMode && !recoveryEmail.trim()) {
+      Alert.alert("Error", "No se recibió el correo para validación interna.");
       return;
     }
 
@@ -43,7 +50,11 @@ export default function ResetPassword() {
 
     try {
       setIsSubmitting(true);
-      await resetPassword(token.trim(), newPassword);
+      if (internalMode) {
+        await resetPasswordInternal(recoveryEmail.trim(), newPassword);
+      } else {
+        await resetPassword(token.trim(), newPassword);
+      }
       setIsSuccess(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "No se pudo actualizar la contraseña.";
@@ -73,26 +84,11 @@ export default function ResetPassword() {
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.brandSection}>
-        <View style={styles.logoCircle}>
-          <Text style={styles.logoEmoji}>🍽️</Text>
-        </View>
-        <Text style={styles.brandTitle}>Inventario Pro</Text>
+          <Text style={styles.logoEmoji}>📝</Text>
+        <Text style={styles.brandTitle}>StockSafe</Text>
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.title}>Nueva Contraseña</Text>
-        <Text style={styles.subText}>Crea una contraseña segura para tu cuenta</Text>
-
-        <Text style={styles.fieldLabel}>Token de Recuperación</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Ingresa el token recibido"
-          placeholderTextColor="#9ca3af"
-          value={token}
-          onChangeText={setToken}
-          autoCapitalize="none"
-        />
-
         <Text style={styles.fieldLabel}>Nueva Contraseña</Text>
         <View style={styles.inputRow}>
           <TextInput
@@ -181,7 +177,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   logoEmoji: {
-    fontSize: 24,
+    fontSize: 36,
   },
   brandTitle: {
     fontSize: 24,
@@ -252,6 +248,16 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginBottom: 4,
   },
+  infoInternalBox: {
+    backgroundColor: "#fff7ed",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#fdba74",
+    padding: 12,
+    marginBottom: 8,
+  },
+  infoInternalTitle: { color: "#9a3412", fontSize: 13, fontWeight: "700", marginBottom: 4 },
+  infoInternalText: { color: "#7c2d12", fontSize: 12 },
   primaryButton: {
     backgroundColor: "#f97316",
     paddingVertical: 12,

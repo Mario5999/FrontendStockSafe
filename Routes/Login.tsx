@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { loginRestaurant, loginSystem } from "../services/api";
+import { loginAdmin, loginRestaurant, setAuthToken } from "../services/api";
 
 export default function Login() {
   const navigation = useNavigation();
@@ -17,13 +17,14 @@ export default function Login() {
 
   const handleAdminLogin = async () => {
     if (!adminEmail.trim() || !adminPassword.trim()) {
-      Alert.alert("Error", "Ingresa usuario y contraseña de administrador");
+      Alert.alert("Error", "Ingresa correo y contraseña de administrador");
       return;
     }
 
     try {
       setIsLoading(true);
-      await loginSystem(adminEmail.trim(), adminPassword);
+      const response = await loginAdmin(adminEmail.trim(), adminPassword.trim());
+      setAuthToken(response.token);
       (navigation as any).navigate("AdminDashboard");
     } catch (error) {
       const message = error instanceof Error ? error.message : "No se pudo iniciar sesión.";
@@ -41,9 +42,13 @@ export default function Login() {
 
     try {
       setIsLoading(true);
-      await loginRestaurant(restaurantEmail.trim(), restaurantPassword);
-      const restaurantName = restaurantEmail.split("@")[0] || "Restaurante";
-      (navigation as any).navigate("RestaurantDashboard", { restaurantName });
+      const response = await loginRestaurant(restaurantEmail.trim(), restaurantPassword);
+      setAuthToken(response.token);
+      const restaurantName = response.user.restaurantName || restaurantEmail.split("@")[0] || "Restaurante";
+      (navigation as any).navigate("RestaurantDashboard", {
+        restaurantName,
+        restaurantId: response.user.id,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "No se pudo iniciar sesión.";
       Alert.alert("Login restaurante", message);
@@ -55,8 +60,8 @@ export default function Login() {
   return (
     <View style={styles.container}>
       <View style={styles.card}>
-        <Text style={styles.logo}>🍽️</Text>
-        <Text style={styles.title}>Inventario Pro</Text>
+        <Text style={styles.logo}>📝​</Text>
+        <Text style={styles.title}>StockSafe</Text>
         <Text style={styles.subtitle}>Sistema de gestión para restaurantes</Text>
 
         <View style={styles.tabRow}>
@@ -106,15 +111,18 @@ export default function Login() {
             <TouchableOpacity onPress={() => (navigation as any).navigate("ForgotPassword")}>
               <Text style={styles.link}>¿Olvidaste tu contraseña?</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => (navigation as any).navigate("Register")}>
-              <Text style={styles.link}>¿No tienes cuenta? Registrar Restaurante</Text>
-            </TouchableOpacity>
+            <View style={styles.registerRow}>
+              <Text style={styles.linkLabel}>¿No tienes cuenta? </Text>
+              <TouchableOpacity onPress={() => (navigation as any).navigate("Register")}>
+                <Text style={styles.linkAction}>Registrar Restaurante</Text>
+              </TouchableOpacity>
+            </View>
           </>
         ) : (
           <>
             <TextInput
               style={styles.input}
-              placeholder="👤 Usuario administrador"
+              placeholder="📧 Correo administrador"
               value={adminEmail}
               onChangeText={setAdminEmail}
               autoCapitalize="none"
@@ -174,4 +182,7 @@ const styles = StyleSheet.create({
   adminButton: { backgroundColor: "#334155" },
   primaryButtonText: { color: "#fff", fontWeight: "700" },
   link: { textAlign: "center", color: "#4b5563", marginTop: 10, fontSize: 13 },
+  registerRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", marginTop: 10 },
+  linkLabel: { color: "#4b5563", fontSize: 13 },
+  linkAction: { color: "#f97316", fontSize: 13, fontWeight: "700" },
 });

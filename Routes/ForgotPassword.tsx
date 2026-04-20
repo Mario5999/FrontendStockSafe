@@ -2,13 +2,14 @@ import React, { useState } from "react";
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { requestPasswordReset } from "../services/api";
+import { requestPasswordReset, validateInternalResetByEmail } from "../services/api";
 
 export default function ForgotPassword() {
   const navigation = useNavigation();
   const [email, setEmail] = useState("");
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isValidatingInternal, setIsValidatingInternal] = useState(false);
 
   const handleSubmit = async () => {
     if (!email.trim()) {
@@ -18,13 +19,37 @@ export default function ForgotPassword() {
 
     try {
       setIsLoading(true);
-      await requestPasswordReset(email.trim());
+      const response = await requestPasswordReset(email.trim());
+      Alert.alert("Recuperación", response.message);
+
       setIsSubmitted(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "No se pudo enviar el correo.";
       Alert.alert("Recuperación", message);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleInternalValidation = async () => {
+    if (!email.trim()) {
+      Alert.alert("Error", "Ingresa un correo electrónico");
+      return;
+    }
+
+    try {
+      setIsValidatingInternal(true);
+      const response = await validateInternalResetByEmail(email.trim());
+      Alert.alert("Recuperación", response.message);
+      (navigation as any).navigate("ResetPassword", {
+        email: email.trim(),
+        internalMode: true,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo validar el token interno.";
+      Alert.alert("Recuperación", message);
+    } finally {
+      setIsValidatingInternal(false);
     }
   };
 
@@ -35,25 +60,29 @@ export default function ForgotPassword() {
           <View style={styles.successCircle}>
             <Text style={styles.successCheck}>✓</Text>
           </View>
-          <Text style={styles.successTitle}>¡Correo Enviado!</Text>
-          <Text style={styles.successSubText}>Hemos enviado un enlace de recuperación a:</Text>
+          <Text style={styles.successTitle}>¡Token Generado!</Text>
+          <Text style={styles.successSubText}>Hemos generado un token de recuperación para:</Text>
           <Text style={styles.emailText}>{email}</Text>
 
           <View style={styles.infoBox}>
             <Text style={styles.infoTitle}>Instrucciones:</Text>
-            <Text style={styles.infoText}>• Revisa tu bandeja de entrada</Text>
-            <Text style={styles.infoText}>• Haz clic en el enlace de recuperación</Text>
+            <Text style={styles.infoText}>• Presiona el boton de Recuperar contraseña</Text>
             <Text style={styles.infoText}>• Crea tu nueva contraseña</Text>
-            <Text style={styles.expireText}>El enlace expirará en 24 horas</Text>
+            <Text style={styles.expireText}>El token expirará en 15 minutos</Text>
           </View>
 
-          <TouchableOpacity style={styles.primaryButton} onPress={() => (navigation as any).navigate("ResetPassword")}>
-            <Text style={styles.primaryText}>Ir a Restablecer Contraseña</Text>
+          <TouchableOpacity
+            style={[styles.primaryButton, styles.secondaryButton]}
+            onPress={handleInternalValidation}
+            disabled={isValidatingInternal}
+          >
+            <Text style={[styles.primaryText, styles.secondaryButtonText]}>
+              {isValidatingInternal
+                ? "Validando Token..."
+                : "Recuperar Contraseña"}
+            </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => setIsSubmitted(false)}>
-            <Text style={styles.link}>¿No recibiste el correo? Reenviar</Text>
-          </TouchableOpacity>
         </View>
       </View>
     );
@@ -81,7 +110,7 @@ export default function ForgotPassword() {
         />
 
         <TouchableOpacity style={styles.primaryButton} onPress={handleSubmit} disabled={isLoading}>
-          <Text style={styles.primaryText}>{isLoading ? "Enviando..." : "Enviar Enlace de Recuperación"}</Text>
+          <Text style={styles.primaryText}>{isLoading ? "Generando..." : "Generar Token de Recuperación"}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -98,6 +127,8 @@ const styles = StyleSheet.create({
   subText: { color: "#6b7280", marginTop: 4, marginBottom: 10 },
   input: { borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8, padding: 12, marginTop: 10 },
   primaryButton: { backgroundColor: "#f97316", padding: 14, borderRadius: 8, alignItems: "center", marginTop: 12 },
+  secondaryButton: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#f97316" },
+  secondaryButtonText: { color: "#f97316" },
   primaryText: { color: "#fff", fontWeight: "700" },
   successCircle: {
     width: 56,
@@ -130,5 +161,4 @@ const styles = StyleSheet.create({
   infoTitle: { color: "#1e40af", fontSize: 14, fontWeight: "700", marginBottom: 6 },
   infoText: { color: "#1e40af", fontSize: 12, marginBottom: 4 },
   expireText: { color: "#1d4ed8", fontSize: 11, marginTop: 6 },
-  link: { textAlign: "center", color: "#4b5563", marginTop: 12 },
 });

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Alert,
   Image,
@@ -15,8 +15,11 @@ import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { MaterialIcons } from "@expo/vector-icons";
+import { clearAuthToken, deleteRestaurantUser, getDashboardIndicators, getRestaurantUsers, registerSystemUser } from "../services/api";
+import { getRestaurantLogoUri, saveRestaurantLogoUri } from "../services/localRestaurantLogo";
 
 interface User {
+  id: number;
   name: string;
   username: string;
   role: "manager" | "employee";
@@ -26,23 +29,15 @@ interface DashboardParams {
   profileImage?: string;
   users?: User[];
   restaurantName?: string;
+  restaurantId?: number;
 }
-
-const mockUsers: User[] = [
-  { name: "María González", username: "maria_manager", role: "manager" },
-  { name: "Carlos Ramírez", username: "carlos_staff", role: "employee" },
-];
-
-
 
 export default function RestaurantDashboard() {
   const navigation = useNavigation();
   const route = useRoute();
   const params = (route.params as DashboardParams | undefined) || {};
 
-  const [users, setUsers] = useState<User[]>(
-    params.users && params.users.length > 0 ? params.users : mockUsers
-  );
+  const [users, setUsers] = useState<User[]>([]);
   const [profileImage, setProfileImage] = useState<string>(params.profileImage || "");
   const [showAddUser, setShowAddUser] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -53,14 +48,102 @@ export default function RestaurantDashboard() {
     password: "",
   });
   const [showNewUserPassword, setShowNewUserPassword] = useState(false);
+  const [stats, setStats] = useState({
+    totalItems: 0,
+    lowStock: 0,
+    excessStock: 0,
+    outOfStock: 0,
+    recentUpdates: 0,
+  });
 
-  const stats = {
-    totalItems: 156,
-    lowStock: 12,
-    excessStock: 6,
-    outOfStock: 3,
-    recentUpdates: 8,
-  };
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadUsers = async () => {
+      try {
+        const data = await getRestaurantUsers(params.restaurantId);
+
+        if (isMounted) {
+          setUsers(
+            data.map((user) => ({
+              id: user.id,
+              name: user.nombreCompleto,
+              username: user.nombreUsuario,
+              role: user.rol,
+            }))
+          );
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "No se pudo cargar la lista de usuarios del restaurante.";
+
+        Alert.alert("Usuarios", message);
+        if (isMounted) {
+          setUsers([]);
+        }
+      }
+    };
+
+    const loadIndicators = async () => {
+      try {
+        const data = await getDashboardIndicators(params.restaurantId);
+
+        if (isMounted) {
+          setStats({
+            totalItems: data.totalItems,
+            lowStock: data.stockBajo,
+            excessStock: data.excedentes,
+            outOfStock: data.sinStock,
+            recentUpdates: data.actualizaciones,
+          });
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "No se pudieron cargar los indicadores del dashboard.";
+
+        Alert.alert("Dashboard", message);
+        if (isMounted) {
+          setStats({
+            totalItems: 0,
+            lowStock: 0,
+            excessStock: 0,
+            outOfStock: 0,
+            recentUpdates: 0,
+          });
+        }
+      }
+    };
+
+    const loadLogo = async () => {
+      const savedUri = await getRestaurantLogoUri(params.restaurantId);
+
+      if (savedUri) {
+        if (isMounted) {
+          setProfileImage(savedUri);
+        }
+        return;
+      }
+
+      if (params.profileImage) {
+        const persistedUri = await saveRestaurantLogoUri(params.restaurantId, params.profileImage);
+        if (isMounted) {
+          setProfileImage(persistedUri);
+        }
+      }
+    };
+
+    loadUsers();
+    loadIndicators();
+    loadLogo();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [params.restaurantId]);
 
   const pickProfileImage = async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -72,17 +155,23 @@ export default function RestaurantDashboard() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      allowsEditing: true,
+      allowsEditing: false,
       quality: 0.8,
-      aspect: [1, 1],
     });
 
     if (!result.canceled && result.assets.length > 0) {
-      setProfileImage(result.assets[0].uri);
+      const selectedUri = result.assets[0].uri;
+      const persistedUri = await saveRestaurantLogoUri(params.restaurantId, selectedUri);
+      setProfileImage(persistedUri);
     }
   };
 
-  const handleAddUser = () => {
+  const handleAddUser = async () => {
+    if (!params.restaurantId) {
+      Alert.alert("Error", "No se encontró el restaurante actual.");
+      return;
+    }
+
     if (!newUser.name || !newUser.username || !newUser.password) {
       Alert.alert("Error", "Por favor completa todos los campos");
       return;
@@ -100,24 +189,49 @@ export default function RestaurantDashboard() {
       return;
     }
 
-    const user: User = {
-      name: newUser.name,
-      username: newUser.username,
-      role: currentRole,
-    };
+    try {
+      await registerSystemUser({
+        restauranteId: params.restaurantId,
+        nombreCompleto: newUser.name,
+        nombreUsuario: newUser.username,
+        contrasena: newUser.password,
+        confirmarContrasena: newUser.password,
+        rol: currentRole,
+      });
 
-    setUsers([...users, user]);
-    setNewUser({ name: "", username: "", password: "" });
-    setShowAddUser(false);
+      const reloadedUsers = await getRestaurantUsers(params.restaurantId);
+      setUsers(
+        reloadedUsers.map((user) => ({
+          id: user.id,
+          name: user.nombreCompleto,
+          username: user.nombreUsuario,
+          role: user.rol,
+        }))
+      );
+
+      setNewUser({ name: "", username: "", password: "" });
+      setShowAddUser(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo registrar el usuario.";
+      Alert.alert("Usuarios", message);
+    }
   };
 
-  const handleRemoveUser = (username: string) => {
+  const handleRemoveUser = (id: number) => {
     Alert.alert("Eliminar usuario", "¿Estás seguro de eliminar este usuario?", [
       { text: "Cancelar", style: "cancel" },
       {
         text: "Eliminar",
         style: "destructive",
-        onPress: () => setUsers(users.filter((u) => u.username !== username)),
+        onPress: async () => {
+          try {
+            await deleteRestaurantUser(id, params.restaurantId);
+            setUsers((prev) => prev.filter((u) => u.id !== id));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "No se pudo eliminar el usuario.";
+            Alert.alert("Usuarios", message);
+          }
+        },
       },
     ]);
   };
@@ -127,6 +241,7 @@ export default function RestaurantDashboard() {
 
   const handleConfirmLogout = () => {
     setShowLogoutModal(false);
+    clearAuthToken();
     navigation.navigate("Login" as never);
   };
 
@@ -211,8 +326,8 @@ export default function RestaurantDashboard() {
         <Text style={styles.cardTitle}>Usuarios del Sistema</Text>
         <Text style={styles.cardDescription}>Gerente y empleado con acceso al inventario</Text>
 
-        {users.map((user, index) => (
-          <View key={`${user.username}-${index}`} style={styles.userItem}>
+        {users.map((user) => (
+          <View key={String(user.id)} style={styles.userItem}>
             <View style={styles.userAvatar}>
               <Text style={styles.userAvatarText}>{user.name.charAt(0).toUpperCase()}</Text>
             </View>
@@ -227,7 +342,7 @@ export default function RestaurantDashboard() {
             <Text style={user.role === "manager" ? styles.managerBadge : styles.employeeBadge}>
               {user.role === "manager" ? "Gerente" : "Empleado"}
             </Text>
-            <TouchableOpacity style={styles.removeButton} onPress={() => handleRemoveUser(user.username)}>
+            <TouchableOpacity style={styles.removeButton} onPress={() => handleRemoveUser(user.id)}>
               <Ionicons name="trash" size={24} color="red" />
             </TouchableOpacity>
           </View>
@@ -324,7 +439,12 @@ export default function RestaurantDashboard() {
 
         <TouchableOpacity
           style={styles.primaryButton}
-          onPress={() => navigation.navigate("RoleSelect" as never)}
+          onPress={() =>
+            (navigation as any).navigate("RoleSelect", {
+              restaurantId: params.restaurantId,
+              restaurantName: params.restaurantName,
+            })
+          }
         >
           <Text style={styles.primaryButtonText}>Ver Inventario Completo</Text>
         </TouchableOpacity>
